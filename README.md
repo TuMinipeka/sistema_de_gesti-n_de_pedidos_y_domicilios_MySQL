@@ -2,35 +2,40 @@
 
 Base de datos relacional en **MySQL** para gestionar el proceso completo de venta
 de pizzas y domicilios: clientes, catálogo de pizzas e ingredientes, pedidos,
-repartidores y entregas.
+repartidores y entregas. Implementa funciones almacenadas, procedimientos,
+triggers, vistas y consultas analíticas para automatizar la lógica de negocio.
 
 ## Estructura del proyecto
 
 ```
-├── database.sql     -- Creación de la BD, tablas, llaves foráneas y datos de ejemplo (INSERT)
-├── funciones.sql     -- Funciones almacenadas (CREATE FUNCTION) [pendiente]
-├── triggers.sql       -- Triggers y procedimientos (CREATE TRIGGER / PROCEDURE) [pendiente]
-├── vistas.sql          -- Vistas de reportes (CREATE VIEW) [pendiente]
-├── consultas.sql        -- Consultas SQL complejas (JOIN, subconsultas, agregaciones) [pendiente]
+├── database.sql       -- Creación de la BD, tablas, llaves foráneas y datos de ejemplo
+├── funciones.sql      -- Funciones almacenadas y procedimiento (CREATE FUNCTION / PROCEDURE)
+├── triggers.sql       -- Triggers de auditoría y automatización (CREATE TRIGGER)
+├── vistas.sql         -- Vistas de reportes (CREATE VIEW)
+├── consultas.sql      -- Consultas SQL complejas (JOIN, subconsultas, agregaciones)
 └── README.md
 ```
-
-> Los archivos `funciones.sql`, `triggers.sql`, `vistas.sql` y `consultas.sql`
-> se dejaron con la cabecera y el listado de lo que deben contener según los
-> requerimientos del proyecto; su desarrollo queda a cargo del autor.
 
 ## 1. Descripción del proyecto
 
 El sistema permite:
 
-- Registrar clientes y su historial de pedidos.
-- Administrar el catálogo de pizzas y la relación con los ingredientes que las componen.
-- Controlar el stock de ingredientes y su nivel mínimo permitido.
-- Registrar pedidos con su detalle (una o varias pizzas por pedido), método de pago,
-  estado y total.
-- Asignar repartidores y gestionar los domicilios: hora de salida, hora de entrega,
+- **Registrar clientes** y su historial de pedidos.
+- **Administrar el catálogo de pizzas** y la relación con los ingredientes que las componen.
+- **Controlar el stock de ingredientes** y su nivel mínimo permitido, con descuento
+  automático vía trigger al registrar cada pedido.
+- **Registrar pedidos** con su detalle (una o varias pizzas por pedido), método de pago,
+  estado y total calculado automáticamente (subtotal + envío + IVA 19 %).
+- **Asignar repartidores** y gestionar los domicilios: hora de salida, hora de entrega,
   distancia y tarifa de envío aplicada según zona.
-- Mantener un historial de cambios de precio de las pizzas (auditoría).
+- **Auditar cambios de precio** de las pizzas mediante trigger que registra
+  automáticamente el historial de modificaciones.
+- **Evaluar ganancia neta diaria** a través de función que resta el costo de
+  ingredientes a los ingresos por ventas.
+- **Generar reportes** mediante vistas: resumen de clientes, desempeño de
+  repartidores y alertas de stock bajo.
+- **Cerrar pedidos** con un procedimiento almacenado que actualiza estado y total
+  en una sola operación.
 
 ## 2. Corrección del diseño original
 
@@ -63,25 +68,16 @@ Se corrigieron antes de generar `database.sql`:
 | `domicilios` | Datos de la entrega: repartidor, tarifa, horarios y distancia | FK a `pedidos` (1:1), `repartidores` y `tarifas_envio` |
 | `historial_precios` | Auditoría de cambios de precio en `pizzas` | FK a `pizzas` |
 
-### Diagrama de relaciones (resumen)
+### Diagrama de relaciones DrawSQL
 
-```
-clientes 1───N pedidos 1───N detalle_pedido N───1 pizzas
-                 │                                  │
-                 1                                  1
-                 │                                  N
-             domicilios                    pizza_ingredientes
-              │      │                              N
-              N      N                               │
-      repartidores  tarifas_envio               ingredientes
-
-pizzas 1───N historial_precios
-```
+![Diagrama Base de DrawSQL](assets/img/drawsql.png)
 
 ## 4. Ejemplos de consultas
 
-Ejemplos ilustrativos de cómo se relacionan las tablas (el set completo de
-consultas requeridas se desarrolla en `consultas.sql`):
+### Consultas ilustrativas (relaciones entre tablas)
+
+Ejemplos que muestran cómo se relacionan las tablas para obtener información
+del negocio:
 
 ```sql
 -- Pedidos de un cliente con el detalle de pizzas solicitadas
@@ -105,6 +101,32 @@ FROM domicilios d
 JOIN pedidos p ON p.id_pedido = d.id_pedido
 JOIN repartidores r ON r.id_repartidor = d.id_repartidor
 JOIN tarifas_envio t ON t.id_tarifa = d.id_tarifa;
+```
+
+### Uso de vistas
+
+```sql
+-- Resumen de clientes: cuánto han gastado y cuántos pedidos han realizado
+SELECT * FROM vw_resumen_pedidos_clientes;
+
+-- Desempeño de repartidores: entregas completadas y tiempo promedio
+SELECT * FROM vw_desempeno_repartidores;
+
+-- Alertas de inventario: ingredientes por debajo del stock mínimo
+SELECT * FROM vw_stock_bajo;
+```
+
+### Uso de funciones y procedimiento almacenado
+
+```sql
+-- Calcular la ganancia neta de un día específico
+SELECT fn_ganancia_neta_diaria('2026-07-01') AS ganancia_neta;
+
+-- Cerrar un pedido: cambia estado a 'Entregado' y calcula el total final
+CALL sp_entregar_pedido(4);
+
+-- Verificar el resultado del cierre
+SELECT id_pedido, estado, total FROM pedidos WHERE id_pedido = 4;
 ```
 
 ## 5. Instrucciones para ejecutar el script
@@ -145,142 +167,268 @@ mysql -u <usuario> -p pizzeria_db --default-character-set=utf8mb4 < consultas.sq
 ## 6. Funciones, Procedimiento, Triggers, Vistas y Consultas
 
 A continuación se documentan todos los objetos de base de datos y consultas
-implementados para cumplir con los requerimientos funcionales del proyecto.
+implementados, junto con su código SQL completo.
 
 ### 6.1 Funciones almacenadas (`funciones.sql`)
 
 #### `fn_calcular_total_pedido`
 
 Calcula el total final de un pedido sumando el subtotal de las pizzas
-(`detalle_pedido.subtotal`) más el costo de envío del domicilio asociado
-(`tarifas_envio.costo_envio`), y aplica el 19 % de IVA sobre esa suma.
-El resultado se retorna como `DECIMAL(10,2)`.
+más el costo de envío, y aplica el 19 % de IVA.
 
-- **Parámetro:** `p_id_pedido INT`
-- **Uso:** Invocada automáticamente por el procedimiento
-  `sp_entregar_pedido` al marcar un pedido como entregado.
-- **Contribución:** Automatiza el cálculo del total con IVA y envío,
-  eliminando errores manuales y garantizando facturación correcta.
+| Atributo | Valor |
+|---|---|
+| **Parámetro** | `p_id_pedido INT` |
+| **Retorno** | `DECIMAL(10,2)` |
+
+```sql
+CREATE FUNCTION fn_calcular_total_pedido(p_id_pedido INT)
+RETURNS DECIMAL(10,2)
+DETERMINISTIC READS SQL DATA
+BEGIN
+    DECLARE v_subtotal DECIMAL(10,2) DEFAULT 0;
+    DECLARE v_envio DECIMAL(10,2) DEFAULT 0;
+    DECLARE v_total DECIMAL(10,2);
+    SELECT IFNULL(SUM(subtotal), 0) INTO v_subtotal
+    FROM detalle_pedido WHERE id_pedido = p_id_pedido;
+    SELECT IFNULL(te.costo_envio, 0) INTO v_envio
+    FROM domicilios d
+    INNER JOIN tarifas_envio te ON d.id_tarifa = te.id_tarifa
+    WHERE d.id_pedido = p_id_pedido;
+    SET v_total = (v_subtotal + v_envio) * 1.19;
+    RETURN ROUND(v_total, 2);
+END;
+```
 
 #### `fn_ganancia_neta_diaria`
 
-Calcula la ganancia neta de un día específico restando a los ingresos
-por pedidos entregados (`pedidos.total`) el costo de los ingredientes
-consumidos en esos pedidos. Obtiene el costo de ingredientes mediante
-la relación `detalle_pedido` → `pizza_ingredientes` → `ingredientes`,
-multiplicando cantidad usada por costo unitario.
+Calcula la ganancia neta de un día restando a los ingresos por ventas
+el costo de los ingredientes consumidos.
 
-- **Parámetro:** `p_fecha DATE`
-- **Retorno:** `DECIMAL(10,2)`
-- **Contribución:** Proporciona una métrica financiera clave para la
-  toma de decisiones, permitiendo conocer la rentabilidad real por día.
+| Atributo | Valor |
+|---|---|
+| **Parámetro** | `p_fecha DATE` |
+| **Retorno** | `DECIMAL(10,2)` |
+
+```sql
+CREATE FUNCTION fn_ganancia_neta_diaria(p_fecha DATE)
+RETURNS DECIMAL(10,2)
+DETERMINISTIC READS SQL DATA
+BEGIN
+    DECLARE v_ventas DECIMAL(10,2) DEFAULT 0;
+    DECLARE v_costos DECIMAL(10,2) DEFAULT 0;
+    SELECT IFNULL(SUM(total), 0) INTO v_ventas
+    FROM pedidos
+    WHERE DATE(fecha_hora) = p_fecha AND estado = 'Entregado';
+    SELECT IFNULL(SUM(pi.cantidad_usada * dp.cantidad * i.costo_unitario), 0) INTO v_costos
+    FROM pedidos p
+    INNER JOIN detalle_pedido dp ON p.id_pedido = dp.id_pedido
+    INNER JOIN pizza_ingredientes pi ON dp.id_pizza = pi.id_pizza
+    INNER JOIN ingredientes i ON pi.id_ingrediente = i.id_ingrediente
+    WHERE DATE(p.fecha_hora) = p_fecha AND p.estado = 'Entregado';
+    RETURN ROUND(v_ventas - v_costos, 2);
+END;
+```
 
 ### 6.2 Procedimiento almacenado (`funciones.sql`)
 
 #### `sp_entregar_pedido`
 
-Marca un pedido como `'Entregado'` y actualiza su campo `total`
-invocando a `fn_calcular_total_pedido` con el identificador del pedido.
+Marca un pedido como `'Entregado'` y actualiza su `total` invocando
+a `fn_calcular_total_pedido`.
 
-- **Parámetro:** `p_id_pedido INT`
-- **Contribución:** Encapsula la lógica de cierre de un pedido
-  (cambio de estado + cálculo del total) en una sola operación
-  transaccional, asegurando consistencia entre el estado y el valor
-  final registrado.
+| Atributo | Valor |
+|---|---|
+| **Parámetro** | `IN p_id_pedido INT` |
+
+```sql
+CREATE PROCEDURE sp_entregar_pedido(IN p_id_pedido INT)
+BEGIN
+    UPDATE pedidos
+    SET estado = 'Entregado',
+        total = fn_calcular_total_pedido(p_id_pedido)
+    WHERE id_pedido = p_id_pedido;
+END;
+```
 
 ### 6.3 Triggers (`triggers.sql`)
 
 #### `trg_actualizar_stock_ingredientes`
 
-- **Evento:** `AFTER INSERT` sobre `detalle_pedido`.
-- **Función:** Por cada línea de detalle insertada, descuenta del
-  stock de `ingredientes` la cantidad de cada insumo utilizado
-  (`pizza_ingredientes.cantidad_usada × detalle_pedido.cantidad`).
-- **Contribución:** Mantiene el inventario actualizado en tiempo real
-  sin intervención manual, asegurando que el stock refleje
-  fielmente las ventas realizadas.
+| Atributo | Valor |
+|---|---|
+| **Evento** | `AFTER INSERT` sobre `detalle_pedido` |
+
+Descuenta del stock los ingredientes usados al insertar una línea de pedido.
+
+```sql
+CREATE TRIGGER trg_actualizar_stock_ingredientes
+AFTER INSERT ON detalle_pedido
+FOR EACH ROW
+BEGIN
+    UPDATE ingredientes i
+    INNER JOIN pizza_ingredientes pi ON i.id_ingrediente = pi.id_ingrediente
+    SET i.stock = i.stock - (pi.cantidad_usada * NEW.cantidad)
+    WHERE pi.id_pizza = NEW.id_pizza;
+END;
+```
 
 #### `trg_historial_precios`
 
-- **Evento:** `AFTER UPDATE` sobre `pizzas`.
-- **Función:** Cuando cambia el `precio_base` de una pizza, inserta
-  automáticamente un registro en `historial_precios` con el precio
-  anterior, el nuevo precio y la fecha/hora del cambio.
-- **Contribución:** Proporciona una pista de auditoría completa para
-  rastrear modificaciones de precios, requerimiento indispensable
-  para reportes financieros y control interno.
+| Atributo | Valor |
+|---|---|
+| **Evento** | `AFTER UPDATE` sobre `pizzas` |
+
+Registra en `historial_precios` el precio anterior y el nuevo cuando cambia `precio_base`.
+
+```sql
+CREATE TRIGGER trg_historial_precios
+AFTER UPDATE ON pizzas
+FOR EACH ROW
+BEGIN
+    IF OLD.precio_base <> NEW.precio_base THEN
+        INSERT INTO historial_precios (id_pizza, precio_anterior, precio_nuevo, fecha_cambio)
+        VALUES (NEW.id_pizza, OLD.precio_base, NEW.precio_base, NOW());
+    END IF;
+END;
+```
 
 #### `trg_repartidor_disponible`
 
-- **Evento:** `AFTER UPDATE` sobre `domicilios`.
-- **Función:** Cuando se registra la `hora_entrega` en un domicilio
-  (pasando de `NULL` a un valor), cambia el estado del repartidor
-  asignado a `'Disponible'` en la tabla `repartidores`.
-- **Contribución:** Automatiza la gestión de disponibilidad del
-  personal de reparto, permitiendo asignar nuevos envíos sin
-  necesidad de actualización manual.
+| Atributo | Valor |
+|---|---|
+| **Evento** | `AFTER UPDATE` sobre `domicilios` |
+
+Marca al repartidor como `'Disponible'` cuando se registra la hora de entrega.
+
+```sql
+CREATE TRIGGER trg_repartidor_disponible
+AFTER UPDATE ON domicilios
+FOR EACH ROW
+BEGIN
+    IF OLD.hora_entrega IS NULL AND NEW.hora_entrega IS NOT NULL THEN
+        UPDATE repartidores
+        SET estado = 'Disponible'
+        WHERE id_repartidor = NEW.id_repartidor;
+    END IF;
+END;
+```
 
 ### 6.4 Vistas (`vistas.sql`)
 
 #### `vw_resumen_pedidos_clientes`
 
-Agrupa a los clientes con la cantidad de pedidos realizados y el
-total acumulado gastado (`COUNT` y `SUM` sobre `pedidos`).
+Resumen de clientes con cantidad de pedidos y total gastado.
 
-- **Columnas:** `id_cliente`, `nombre`, `cantidad_pedidos`,
-  `total_gastado`.
-- **Contribución:** Permite al negocio identificar clientes
-  frecuentes y su valor económico, insumo para programas de
-  fidelización y análisis de ventas.
+```sql
+CREATE VIEW vw_resumen_pedidos_clientes AS
+SELECT c.id_cliente, c.nombre, COUNT(p.id_pedido) AS cantidad_pedidos, SUM(p.total) AS total_gastado
+FROM clientes c
+INNER JOIN pedidos p ON c.id_cliente = p.id_cliente
+GROUP BY c.id_cliente, c.nombre;
+```
 
 #### `vw_desempeno_repartidores`
 
-Muestra métricas de desempeño de cada repartidor: total de entregas
-completadas y tiempo promedio del recorrido en minutos (diferencia
-entre `hora_salida` y `hora_entrega` usando `TIMESTAMPDIFF`).
+Entregas completadas y tiempo promedio por repartidor.
 
-- **Columnas:** `id_repartidor`, `nombre`, `zona_asignada`,
-  `total_entregas`, `tiempo_promedio_minutos`.
-- **Contribución:** Facilita la evaluación del rendimiento de los
-  repartidores y la eficiencia por zona, apoyando decisiones
-  operativas y de asignación de rutas.
+```sql
+CREATE VIEW vw_desempeno_repartidores AS
+SELECT r.id_repartidor, r.nombre, r.zona_asignada,
+       COUNT(d.id_domicilio) AS total_entregas,
+       AVG(TIMESTAMPDIFF(MINUTE, d.hora_salida, d.hora_entrega)) AS tiempo_promedio_minutos
+FROM repartidores r
+LEFT JOIN domicilios d ON r.id_repartidor = d.id_repartidor
+WHERE d.hora_entrega IS NOT NULL
+GROUP BY r.id_repartidor, r.nombre, r.zona_asignada;
+```
 
 #### `vw_stock_bajo`
 
-Lista los ingredientes cuyo stock actual es inferior al mínimo
-permitido (`stock < stock_minimo`).
+Ingredientes con stock por debajo del mínimo permitido.
 
-- **Columnas:** `id_ingrediente`, `nombre`, `stock`, `stock_minimo`,
-  `costo_unitario`.
-- **Contribución:** Alerta temprana para el área de compras sobre
-  insumos próximos a agotarse, evitando rupturas de inventario que
-  afecten la producción.
+```sql
+CREATE VIEW vw_stock_bajo AS
+SELECT id_ingrediente, nombre, stock, stock_minimo, costo_unitario
+FROM ingredientes
+WHERE stock < stock_minimo;
+```
 
 ### 6.5 Consultas SQL implementadas (`consultas.sql`)
 
-| # | Consulta | Descripción | Requerimiento |
+| # | Consulta | Código SQL | Requerimiento |
 |---|---|---|---|
-| 1 | Pedidos por fecha | `JOIN` entre `clientes` y `pedidos` filtrado por rango de fechas (`BETWEEN`), ordenado por fecha. | Reportes temporales |
-| 2 | Pizzas más vendidas | `JOIN` `pizzas` ↔ `detalle_pedido` con `SUM(cantidad)` y `ORDER BY` descendente. | Identificar productos estrella |
-| 3 | Pedidos por repartidor | `JOIN` `repartidores` ↔ `domicilios` ↔ `pedidos`, ordenado por nombre y fecha. | Control de carga laboral |
-| 4 | Tiempo promedio por zona | `AVG(TIMESTAMPDIFF)` agrupado por `zona_asignada` en entregas completadas. | Evaluar eficiencia operativa por zona |
-| 5 | Clientes con gasto superior | `HAVING SUM(total) > 50000` tras agrupar por cliente. | Identificar clientes VIP |
-| 6 | Búsqueda de pizza por nombre | `LIKE '%Queso%'` para filtrar catálogo. | Búsqueda rápida en el menú |
-| 7 | Clientes frecuentes (subconsulta) | Subconsulta que obtiene clientes con más de 5 pedidos en un mes, y consulta externa que devuelve sus datos. | Detectar alta recurrencia |
+| 1 | **Pedidos por fecha** | `SELECT c.id_cliente, c.nombre, p.id_pedido, p.fecha_hora, p.total FROM clientes c INNER JOIN pedidos p ON c.id_cliente = p.id_cliente WHERE DATE(p.fecha_hora) BETWEEN '2026-07-01' AND '2026-07-05' ORDER BY p.fecha_hora;` | Reportes temporales |
+| 2 | **Pizzas más vendidas** | `SELECT p.nombre, SUM(dp.cantidad) AS total_vendida FROM pizzas p INNER JOIN detalle_pedido dp ON p.id_pizza = dp.id_pizza GROUP BY p.id_pizza, p.nombre ORDER BY total_vendida DESC;` | Identificar productos estrella |
+| 3 | **Pedidos por repartidor** | `SELECT r.nombre AS repartidor, p.id_pedido, p.fecha_hora, p.estado FROM repartidores r INNER JOIN domicilios d ON r.id_repartidor = d.id_repartidor INNER JOIN pedidos p ON d.id_pedido = p.id_pedido ORDER BY r.nombre, p.fecha_hora;` | Control de carga laboral |
+| 4 | **Tiempo promedio por zona** | `SELECT r.zona_asignada, AVG(TIMESTAMPDIFF(MINUTE, d.hora_salida, d.hora_entrega)) AS promedio_minutos FROM repartidores r INNER JOIN domicilios d ON r.id_repartidor = d.id_repartidor WHERE d.hora_entrega IS NOT NULL GROUP BY r.zona_asignada;` | Evaluar eficiencia operativa por zona |
+| 5 | **Clientes con gasto superior** | `SELECT c.nombre, SUM(p.total) AS total_gastado FROM clientes c INNER JOIN pedidos p ON c.id_cliente = p.id_cliente GROUP BY c.id_cliente, c.nombre HAVING SUM(p.total) > 50000 ORDER BY total_gastado DESC;` | Identificar clientes VIP |
+| 6 | **Búsqueda de pizza por nombre** | `SELECT * FROM pizzas WHERE nombre LIKE '%Queso%';` | Búsqueda rápida en el menú |
+| 7 | **Clientes frecuentes (subconsulta)** | `SELECT nombre FROM clientes WHERE id_cliente IN (SELECT id_cliente FROM pedidos WHERE YEAR(fecha_hora) = 2026 AND MONTH(fecha_hora) = 7 GROUP BY id_cliente HAVING COUNT(*) > 5);` | Detectar alta recurrencia |
 
-## 7. Validación realizada
+## 7. Flujo completo del sistema
 
-`database.sql` fue ejecutado y probado contra un servidor MariaDB 10.11:
+```
+CLIENTE
+  │
+  ├── Realiza un pedido → INSERT INTO pedidos
+  │
+  ├── Se agregan pizzas → INSERT INTO detalle_pedido
+  │     └── Trigger: trg_actualizar_stock_ingredientes descuenta ingredientes
+  │
+  ├── Se asigna repartidor → INSERT INTO domicilios
+  │
+  ├── Repartidor entrega → UPDATE domicilios SET hora_entrega
+  │     └── Trigger: trg_repartidor_disponible libera al repartidor
+  │
+  ├── Se cierra el pedido → CALL sp_entregar_pedido(id)
+  │     ├── Actualiza estado a 'Entregado'
+  │     └── fn_calcular_total_pedido: (subtotal + envio) × 1.19
+  │
+  ├── vw_resumen_pedidos_clientes → gasto acumulado del cliente
+  ├── vw_desempeno_repartidores → tiempo promedio de entrega
+  └── vw_stock_bajo → alerta ingredientes con stock crítico
+
+Si se modifica el precio de una pizza:
+  └── trg_historial_precios registra el cambio en historial_precios
+
+Reportes adicionales (consultas.sql): pizzas mas vendidas,
+clientes que mas gastan, tiempo promedio por zona, clientes frecuentes.
+```
+
+## 8. Validacion realizada
+
+### Base de datos y tablas
+
+`database.sql` fue ejecutado y probado contra MariaDB 10.11:
 
 - Las 10 tablas se crean sin errores.
 - Los datos de ejemplo se insertan correctamente (5 clientes, 5 pizzas,
   6 ingredientes, 14 relaciones pizza-ingrediente, 3 repartidores,
-  3 tarifas, 6 pedidos, 8 líneas de detalle, 4 domicilios y 2 registros
+  3 tarifas, 6 pedidos, 8 lineas de detalle, 4 domicilios y 2 registros
   de historial de precios).
-- Las llaves foráneas apuntan en la dirección correcta (verificado contra
+- Las llaves foraneas apuntan en la direccion correcta (verificado contra
   `information_schema.KEY_COLUMN_USAGE`).
-- Los `CHECK constraints` (stock ≥ 0, cantidad ≥ 1, distancia_max ≥ distancia_min)
-  y las llaves foráneas rechazan correctamente datos inválidos.
+- Los `CHECK constraints` (stock >= 0, cantidad >= 1, distancia_max >=
+  distancia_min) rechazan correctamente datos invalidos.
+
+### Funciones y procedimiento
+
+- `fn_calcular_total_pedido` -- calcula subtotal + envio + IVA.
+- `fn_ganancia_neta_diaria` -- retorna la ganancia neta del dia.
+- `sp_entregar_pedido` -- actualiza estado y total.
+
+### Triggers
+
+- `trg_actualizar_stock_ingredientes` -- descuenta stock al insertar detalle.
+- `trg_historial_precios` -- inserta auditoria al cambiar precio.
+- `trg_repartidor_disponible` -- libera repartidor al registrar hora de entrega.
+
+### Vistas
+
+- `vw_resumen_pedidos_clientes` -- agrupa pedidos por cliente.
+- `vw_desempeno_repartidores` -- entregas y tiempos promedios.
+- `vw_stock_bajo` -- ingredientes con stock critico.
 
 
 
