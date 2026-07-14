@@ -1,9 +1,33 @@
-# Sistema de Gestión de Pizzería y Domicilios
+<div align="center">
 
-Base de datos relacional en **MySQL** para gestionar el proceso completo de venta
-de pizzas y domicilios: clientes, catálogo de pizzas e ingredientes, pedidos,
-repartidores y entregas. Implementa funciones almacenadas, procedimientos,
-triggers, vistas y consultas analíticas para automatizar la lógica de negocio.
+# 🍕 Sistema de Gestión de Pizzería y Domicilios 🛵
+
+*Automatizando el sabor, desde el horno hasta tu puerta.*
+
+<br>
+
+<img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/mysql/mysql-original-wordmark.svg" alt="MySQL" width="60" height="60"/>
+&nbsp;&nbsp;&nbsp;&nbsp;
+<img src="https://raw.githubusercontent.com/devicons/devicon/master/icons/git/git-original.svg" alt="Git" width="60" height="60"/>
+&nbsp;&nbsp;&nbsp;&nbsp;
+<img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/DBeaver_logo.svg" alt="DBeaver" width="60" height="60"/>
+
+<br><br>
+
+</div>
+
+---
+
+### 📖 Sobre el Proyecto
+
+Base de datos relacional construida en **MySQL** para gestionar el proceso integral de venta de pizzas y domicilios. Este sistema controla de manera eficiente:
+* 👥 Clientes
+* 🍕 Catálogo de pizzas e ingredientes
+* 📝 Pedidos
+* 🛵 Repartidores y entregas
+
+🛠️ **Tecnología implementada bajo el capó:**
+Implementa *funciones almacenadas*, *procedimientos*, *triggers*, *vistas* y *consultas analíticas* avanzadas para automatizar y agilizar toda la lógica de negocio.
 
 ## Estructura del proyecto
 
@@ -360,10 +384,10 @@ WHERE stock < stock_minimo;
 |---|---|---|---|
 | 1 | **Pedidos por fecha** | `SELECT c.id_cliente, c.nombre, COUNT(p.id_pedido) AS total_pedidos, SUM(p.total) AS total_gastado FROM clientes c INNER JOIN pedidos p ON c.id_cliente = p.id_cliente WHERE DATE(p.fecha_hora) BETWEEN '2026-07-01' AND '2026-07-05' GROUP BY c.id_cliente, c.nombre ORDER BY c.nombre;` | Reportes temporales |
 | 2 | **Pizzas más vendidas** | `SELECT p.nombre, SUM(dp.cantidad) AS total_vendida FROM pizzas p INNER JOIN detalle_pedido dp ON p.id_pizza = dp.id_pizza GROUP BY p.id_pizza, p.nombre ORDER BY total_vendida DESC;` | Identificar productos estrella |
-| 3 | **Pedidos por repartidor** | `SELECT r.nombre AS repartidor, COUNT(p.id_pedido) AS cantidad_pedidos, MAX(p.fecha_hora) AS ultimo_pedido FROM repartidores r INNER JOIN domicilios d ON r.id_repartidor = d.id_repartidor INNER JOIN pedidos p ON d.id_pedido = p.id_pedido GROUP BY r.id_repartidor, r.nombre ORDER BY r.nombre;` | Control de carga laboral |
+| 3 | **Pedidos por repartidor** | `SELECT r.nombre AS repartidor, p.id_pedido, p.fecha_hora, p.estado FROM repartidores r INNER JOIN domicilios d ON r.id_repartidor = d.id_repartidor INNER JOIN pedidos p ON d.id_pedido = p.id_pedido ORDER BY r.nombre, p.fecha_hora;` | Control de carga laboral |
 | 4 | **Tiempo promedio por zona** | `SELECT r.zona_asignada, AVG(TIMESTAMPDIFF(MINUTE, d.hora_salida, d.hora_entrega)) AS promedio_minutos FROM repartidores r INNER JOIN domicilios d ON r.id_repartidor = d.id_repartidor WHERE d.hora_entrega IS NOT NULL GROUP BY r.zona_asignada;` | Evaluar eficiencia operativa por zona |
 | 5 | **Clientes con gasto superior** | `SELECT c.nombre, SUM(p.total) AS total_gastado FROM clientes c INNER JOIN pedidos p ON c.id_cliente = p.id_cliente GROUP BY c.id_cliente, c.nombre HAVING SUM(p.total) > 50000 ORDER BY total_gastado DESC;` | Identificar clientes VIP |
-| 6 | **Búsqueda de pizza por nombre** | `SELECT pz.nombre AS pizza, pz.tamaño, pz.precio_base, i.nombre AS ingrediente, pi.cantidad_usada FROM pizzas pz INNER JOIN pizza_ingredientes pi ON pz.id_pizza = pi.id_pizza INNER JOIN ingredientes i ON pi.id_ingrediente = i.id_ingrediente WHERE pz.nombre LIKE '%Queso%';` | Búsqueda con detalle de ingredientes |
+| 6 | **Búsqueda de pizza por nombre** | `SELECT * FROM pizzas WHERE nombre LIKE '%Queso%';` | Búsqueda rápida en el menú |
 | 7 | **Clientes frecuentes (subconsulta)** | `SELECT nombre FROM clientes WHERE id_cliente IN (SELECT id_cliente FROM pedidos WHERE YEAR(fecha_hora) = 2026 AND MONTH(fecha_hora) = 7 GROUP BY id_cliente HAVING COUNT(*) > 5);` | Detectar alta recurrencia |
 
 ## 7. Flujo completo del sistema
