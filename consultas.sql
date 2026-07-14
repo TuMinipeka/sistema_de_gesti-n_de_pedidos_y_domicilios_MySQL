@@ -4,14 +4,14 @@ USE proyecto_piccolo;
 SELECT
     c.id_cliente,
     c.nombre,
-    p.id_pedido,
-    p.fecha_hora,
-    p.total
+    COUNT(p.id_pedido) AS total_pedidos,
+    SUM(p.total) AS total_gastado
 FROM clientes c
 INNER JOIN pedidos p
     ON c.id_cliente = p.id_cliente
 WHERE DATE(p.fecha_hora) BETWEEN '2026-07-01' AND '2026-07-05'
-ORDER BY p.fecha_hora;
+GROUP BY c.id_cliente, c.nombre
+ORDER BY c.nombre;
 
 -- Pizzas más vendidas
 SELECT
@@ -25,20 +25,18 @@ GROUP BY
     p.nombre
 ORDER BY total_vendida DESC;
 
--- pedidos por repartidor
+-- Pedidos por repartidor
 SELECT
     r.nombre AS repartidor,
-    p.id_pedido,
-    p.fecha_hora,
-    p.estado
+    COUNT(p.id_pedido) AS cantidad_pedidos,
+    MAX(p.fecha_hora) AS ultimo_pedido
 FROM repartidores r
 INNER JOIN domicilios d
     ON r.id_repartidor = d.id_repartidor
 INNER JOIN pedidos p
     ON d.id_pedido = p.id_pedido
-ORDER BY
-    r.nombre,
-    p.fecha_hora;
+GROUP BY r.id_repartidor, r.nombre
+ORDER BY r.nombre;
 
 -- Promedio de entrega por zona
 SELECT
@@ -69,11 +67,19 @@ GROUP BY
 HAVING SUM(p.total) > 50000
 ORDER BY total_gastado DESC;
 
--- Búsqueda de nombre de pizza
+-- Búsqueda de pizza por nombre con sus ingredientes
 SELECT
-    *
-FROM pizzas
-WHERE nombre LIKE '%Queso%';
+    pz.nombre AS pizza,
+    pz.tamaño,
+    pz.precio_base,
+    i.nombre AS ingrediente,
+    pi.cantidad_usada
+FROM pizzas pz
+INNER JOIN pizza_ingredientes pi
+    ON pz.id_pizza = pi.id_pizza
+INNER JOIN ingredientes i
+    ON pi.id_ingrediente = i.id_ingrediente
+WHERE pz.nombre LIKE '%Queso%';
 
 -- Subconsulta para obtener clientes frecuentes
 SELECT
