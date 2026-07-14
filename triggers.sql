@@ -1,4 +1,4 @@
-USE proyecto_piccolo;
+USE pizzeria_db;
 
 -- Actualizar el stock de ingredientes
 DELIMITER $$

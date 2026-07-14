@@ -1,4 +1,4 @@
-USE proyecto_piccolo;
+USE pizzeria_db;
 
 -- Resume de pedido por cliente 
 CREATE VIEW vw_resumen_pedidos_clientes AS

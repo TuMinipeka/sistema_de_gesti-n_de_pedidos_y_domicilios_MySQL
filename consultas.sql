@@ -1,4 +1,4 @@
-USE proyecto_piccolo;
+USE pizzeria_db;
 
 -- Clientes con pedidos entre dos fechas
 SELECT

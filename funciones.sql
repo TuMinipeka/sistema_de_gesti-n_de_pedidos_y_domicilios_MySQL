@@ -1,4 +1,4 @@
-USE proyecto_piccolo;
+USE pizzeria_db;
 DROP FUNCTION IF EXISTS fn_calcular_total_pedido;
 
 DELIMITER $$
