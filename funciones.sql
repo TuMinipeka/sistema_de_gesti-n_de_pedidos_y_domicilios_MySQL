@@ -1,4 +1,4 @@
-USE pizzeria_db;
+USE proyecto_piccolo;
 DROP FUNCTION IF EXISTS fn_calcular_total_pedido;
 
 DELIMITER $$
@@ -30,6 +30,8 @@ BEGIN
     RETURN ROUND(v_total,2);
 END$$
 DELIMITER ;
+
+SELECT fn_calcular_total_pedido(1) AS total_calculado_pedido_1;
 
 
 DELIMITER $$
@@ -64,12 +66,11 @@ BEGIN
             ON pi.id_ingrediente=i.id_ingrediente
     WHERE DATE(p.fecha_hora)=p_fecha
     AND p.estado='Entregado';
-
     RETURN ROUND(v_ventas-v_costos,2);
-
 END$$
 DELIMITER ;
 
+SELECT fn_ganancia_neta_diaria('2026-07-01') AS ganancia_neta_del_dia;
 
 DELIMITER $$
 CREATE PROCEDURE sp_entregar_pedido(
@@ -81,8 +82,9 @@ BEGIN
         estado='Entregado',
         total=fn_calcular_total_pedido(p_id_pedido)
     WHERE id_pedido=p_id_pedido;
-
 END$$
 DELIMITER ;
+ 
+CALL sp_entregar_pedido(4);
 
 
